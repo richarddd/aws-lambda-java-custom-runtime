@@ -32,9 +32,9 @@ dependencies {
 
     implementation(kotlin("stdlib-jdk8"))
 
-    compile("com.google.code.gson:gson:$gsonVersion")
-    compile("com.amazonaws:aws-lambda-java-events:$awsLambdaEventsVersion")
-    compile("com.amazonaws:aws-lambda-java-core:$awsLambdaCoreVersion")
+    implementation("com.google.code.gson:gson:$gsonVersion")
+    implementation("com.amazonaws:aws-lambda-java-events:$awsLambdaEventsVersion")
+    implementation("com.amazonaws:aws-lambda-java-core:$awsLambdaCoreVersion")
 
     testImplementation(kotlin("reflect", kotlinVersion))
     testImplementation(kotlin("test", kotlinVersion))
