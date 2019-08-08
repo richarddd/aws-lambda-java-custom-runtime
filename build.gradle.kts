@@ -1,8 +1,9 @@
 plugins {
-    java
+    `java-library`
     maven
     idea
     kotlin("jvm") version "1.3.41"
+    id("com.adarshr.test-logger") version "1.7.0"
 }
 
 group = "se.davison.aws.lambda.customruntime"
@@ -57,6 +58,11 @@ tasks.withType<Test> {
     useJUnitPlatform {
         includeEngines("spek2")
     }
+}
+
+testlogger {
+    showStandardStreams = true
+    //theme = ThemeType.MOCHA
 }
 
 configure<JavaPluginConvention> {

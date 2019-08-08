@@ -2,25 +2,52 @@ package se.davison.aws.lambda.customruntime.local
 
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent
 import com.google.gson.GsonBuilder
+import com.google.gson.reflect.TypeToken
 import com.sun.net.httpserver.HttpServer
-import se.davison.aws.lambda.customruntime.util.Constants
+import se.davison.aws.lambda.customruntime.CustomRuntime
+import se.davison.aws.lambda.customruntime.util.Environment
 import java.net.InetSocketAddress
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
-import kotlin.random.Random
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.TimeUnit.SECONDS
+import java.util.logging.Level
+import java.util.logging.Logger
 
-enum class RequestMethod {
-    GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS, TRACE
+
+class ResponseLock {
+    var response: String = "TIMEOUT"
+    val latch = CountDownLatch(1)
 }
 
-class LocalApiGatewayProxy {
+class RequestEvent(val id: String, val json: String, val method: String, val path: String)
+
+class HandlerMatcher(val path: String, val handler: String) {
+    private val regex = Regex(path)
+    fun matches(test: String) = test.startsWith(path) || regex.matches(path)
+}
+
+class LocalApiGatewayProxy(handlerConfig: String) {
+
+    private val handlers = GSON.fromJson<Map<String, Map<String, String>>>(handlerConfig, object : TypeToken<Map<String, Map<String, String>>>() {}.type).mapValues {
+        it.value.entries.map {
+            HandlerMatcher(it.key, it.value)
+        }
+    }
 
     companion object {
         private val GSON = GsonBuilder().serializeNulls().create()
+
+        private val LOGGER = Logger.getLogger(LocalApiGatewayProxy::class.java.simpleName)
+
+        fun start(handlerConfig: String) {
+            LocalApiGatewayProxy(handlerConfig).start()
+        }
     }
 
-    fun start() {
-
+    private fun start() {
         try {
             startServer()
         } catch (ex: Exception) {
@@ -30,37 +57,85 @@ class LocalApiGatewayProxy {
     }
 
     private fun startServer() {
-        val server = HttpServer.create(InetSocketAddress(Constants.LOCAL_PORT), 10)
-        server.createContext("/") {
+        val requestEventQueue = SynchronousQueue<RequestEvent>()
+        val responsesMap = ConcurrentHashMap<String, ResponseLock>()
+        val server = HttpServer.create(InetSocketAddress(Environment.LOCAL_PORT), 10)
+        server.router {
+            path("${Environment.RUNTIME_DATE}/runtime") {
+                path("/invocation") {
+                    get("/next") {
+                        val requestEvent = requestEventQueue.take()
 
-            var response = ByteArray(0)
+                        val handlerName = (handlers[requestEvent.method]
+                                ?: handlers["ANY"])?.find {
+                            it.matches(requestEvent.path)
+                        }?.handler
 
-            try {
+                        responseHeaders.add(CustomRuntime.REQUEST_ID_HEADER_NAME, requestEvent.id)
+                        responseHeaders.add(CustomRuntime.LOCAL_HANDLER_HEADER_NAME, handlerName)
 
-                val responseEvent = APIGatewayProxyRequestEvent().apply {
-                    when (RequestMethod.valueOf(it.requestMethod)) {
-                        RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH -> withBody(it.requestBody.bufferedReader().readText())
+                        log("Processing with handler $handlerName", requestEvent.id)
+
+                        contentType("application/json")
+                        textResponse(200, requestEvent.json)
                     }
-                    withPath(it.requestURI.path)
-                    withHeaders(it.requestHeaders.mapValues {
+                    get("/:requestId/error") {
+                        responsesMap[this.requestParameters["requestId"]]?.let {
+                            it.response = this.requestBody.readText()
+                            it.latch.countDown()
+                        }
+                        emptyResponse(200)
+                    }
+                    post("/:requestId/response") {
+                        val requestId = this.requestParameters["requestId"]
+                        responsesMap[requestId]?.let {
+                            it.response = this.requestBody.readText()
+                            it.latch.countDown()
+                            log("Handler responded", requestId!!)
+                        }
+                        emptyResponse(200)
+                    }
+                }
+
+                get("/init/error") {
+                    responseHeaders.add(CustomRuntime.REQUEST_ID_HEADER_NAME, "aaaa")
+                    textResponse(200, "Init error")
+                }
+            }
+            get("*") {
+                if (this.requestURI.path.contains(Regex("""\.\w{2,4}$"""))) {
+                    emptyResponse(400)
+                    return@get
+                }
+
+
+                val httpExchange = this
+                val requestId = UUID.randomUUID().toString()
+                val proxyEvent = APIGatewayProxyRequestEvent().apply {
+
+                    when (Router.RequestMethod.valueOf(httpExchange.requestMethod)) {
+                        Router.RequestMethod.POST, Router.RequestMethod.PUT, Router.RequestMethod.PATCH -> withBody(httpExchange.requestBody.bufferedReader().readText())
+                    }
+                    withPath(httpExchange.requestURI.path)
+                    withHeaders(httpExchange.requestHeaders.mapValues {
                         it.value.joinToString()
                     })
-                    it.requestURI.path.substring(1).substringAfter("/", "").let {
+                    httpExchange.requestURI.path.substring(1).substringAfter("/", "").let {
                         if (it.isNotBlank()) {
                             withPathParameters(mapOf("any" to it.dropLast(1)))
                         }
                     }
-                    withHttpMethod(it.requestMethod)
-                    withMultiValueHeaders(it.requestHeaders)
+                    withHttpMethod(httpExchange.requestMethod)
+                    withMultiValueHeaders(httpExchange.requestHeaders)
 
-                    val multiQuery = it.requestURI.query?.let {
+                    val multiQuery = httpExchange.requestURI.query?.let {
                         mutableMapOf<String, MutableList<String>>()
                     }
-                    val parsedQuery = it.requestURI.query?.split("&")?.associate {
+                    val parsedQuery = httpExchange.requestURI.query?.split("&")?.associate {
                         it.split("=").let {
                             val key = it[0]
                             val value = (it.getOrNull(1) ?: "")
-                            multiQuery!!.getOrPut(key, { mutableListOf() }).add(value)
+                            multiQuery!!.getOrPut(key, ::mutableListOf).add(value)
                             key to value
                         }
                     }
@@ -68,11 +143,11 @@ class LocalApiGatewayProxy {
                     withQueryStringParameters(parsedQuery)
                     withMultiValueQueryStringParameters(multiQuery)
                     withRequestContext(APIGatewayProxyRequestEvent.ProxyRequestContext().apply {
-                        resourceId = "mocked-id-${Random.nextInt()}"
-                        accountId = "mocked-id-${Random.nextInt()}"
+                        resourceId = "mocked-id-${Random().nextInt()}"
+                        accountId = "mocked-id-${Random().nextInt()}"
                         stage = "dev"
-                        requestId = UUID.randomUUID().toString()
-                        resourcePath = "/${it.requestURI.path.substring(1).let {
+                        this.requestId = requestId
+                        resourcePath = "/${httpExchange.requestURI.path.substring(1).let {
                             val slashIndex = it.indexOf("/")
                             if (slashIndex > -1) {
                                 it.substring(0, slashIndex) + "/{any+}"
@@ -82,23 +157,38 @@ class LocalApiGatewayProxy {
                         }}"
                         identity = APIGatewayProxyRequestEvent.RequestIdentity().apply {
                             sourceIp = "0.0.0.0"
-                            userAgent = it.requestHeaders.getFirst("User-Agent")
+                            userAgent = httpExchange.requestHeaders.getFirst("User-Agent")
                         }
                     })
                 }
 
-                response = GSON.toJson(responseEvent).toByteArray()
-                it.sendResponseHeaders(200, response.size.toLong())
-            } catch (exception: Exception) {
-                response = GSON.toJson(exception).toByteArray()
-                it.sendResponseHeaders(500, response.size.toLong())
+                log("Incoming event ${proxyEvent.httpMethod} (${proxyEvent.path})", requestId)
+
+                val eventJson = GSON.toJson(proxyEvent)
+                responsesMap[requestId] = ResponseLock()
+                requestEventQueue.offer(RequestEvent(requestId, eventJson, proxyEvent.httpMethod, proxyEvent.path), 1, SECONDS)
+                responsesMap[requestId]?.latch?.await(30, SECONDS)
+                contentType("application/json")
+                textResponse(200, responsesMap[requestId]!!.response)
             }
-            it.responseHeaders.add("Content-Type", "application/json; charset=UTF-8")
-            val out = it.responseBody
-            out.write(response)
-            out.close()
         }
-        server.executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
+        //twice as many as running lambda procesors
+        server.executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2)
         server.start()
+        println("""
+  _____         __             ___            __  _          
+ / ___/_ _____ / /____  __ _  / _ \__ _____  / /_(_)_ _  ___ 
+/ /__/ // (_-</ __/ _ \/  ' \/ , _/ // / _ \/ __/ /  ' \/ -_)
+\___/\_,_/___/\__/\___/_/_/_/_/|_|\_,_/_//_/\__/_/_/_/_/\__/ 
+                                                                                                                       
+        """.trimIndent())
+        println("Started local server at: http://localhost:${Environment.LOCAL_PORT}")
     }
+
+    private fun log(message: String, requsetId: String) {
+        //"Processing with handler $handlerName"
+        LOGGER.log(Level.INFO, "Proxy (requsetId=$requsetId): $message")
+    }
+
+
 }

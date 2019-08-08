@@ -7,16 +7,24 @@ import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent
 import com.google.gson.GsonBuilder
 import org.spekframework.spek2.Spek
 import org.spekframework.spek2.style.specification.describe
-import java.io.File
+import se.davison.aws.lambda.customruntime.util.openConnection
+import se.davison.aws.lambda.customruntime.util.textResult
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
+import java.time.Duration
+import java.time.Instant
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import kotlin.math.max
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
 
 val GSON = GsonBuilder().create()
 
 class TestHandler : RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
     override fun handleRequest(input: APIGatewayProxyRequestEvent, context: Context) = APIGatewayProxyResponseEvent()
-            .withBody(GSON.toJson(input))
+            .withBody(GSON.toJson(mapOf("a" to "b")))
 }
 
 object Environment {
@@ -47,22 +55,87 @@ object Environment {
 @Suppress("unused")
 object CustomRuntimeTest : Spek({
 
-    val runtime = CustomRuntime()
-    runtime.eventData = File(javaClass.classLoader.getResource("event.json")!!.file).reader().readText()
-
-
     Environment["_HANDLER"] = TestHandler::class.java.name
+
+    val handlers = mapOf(
+            "ANY" to mapOf("/hello" to TestHandler::class.java.name)
+    )
+
+    CustomRuntime.process(GSON.toJson(handlers))
+    CustomRuntime.onFatalError = {
+        throw it
+    }
 
     describe("Test runtime") {
 
-        it("should runtime without crashing") {
+        val expectation = GSON.toJson(mapOf("body" to GSON.toJson(mapOf("a" to "b"))))
 
-            val expected = GSON.toJson(
-                    APIGatewayProxyResponseEvent().withBody(
-                            GSON.toJson(GSON.fromJson(runtime.eventData, APIGatewayProxyRequestEvent::class.java))))
+        //make sure server is up
+        Thread.sleep(1000)
 
-            assertEquals(expected, runtime.process())
+        it("should handle a single request") {
+            duratiton {
+                assertEquals(expectation, "http://localhost:3000/hello".openConnection().textResult)
+            }.print()
+        }
+
+        it("should handle several requests") {
+            duratiton {
+                assertEquals(expectation, "http://localhost:3000/hello".openConnection().textResult)
+                assertEquals(expectation, "http://localhost:3000/hello".openConnection().textResult)
+                assertEquals(expectation, "http://localhost:3000/hello".openConnection().textResult)
+            }.print()
+        }
+
+        it("should handle several concurrent requests") {
+
+            val count = max(Runtime.getRuntime().availableProcessors() / 2, 1)
+
+            val duration = duratiton {
+                val expectations = Array(count) {
+                    expectation
+                }.toList()
+                val results = Parallel.waitAll(Array(count) {
+                    Callable {
+                        "http://localhost:3000/hello".openConnection().textResult
+                    }
+                }.toList())
+                assertEquals(expectations, results)
+            }.print()
+
+            assertTrue(duration.toMillis() < 40)
         }
 
     }
 })
+
+private fun Duration.print(): Duration {
+    println("\u001b[0;94m" + "Duration: ${this.toMillis()}ms" + "\u001b[0m")
+    return this
+}
+
+fun duratiton(function: () -> Unit): Duration {
+    val start = Instant.now()
+    function()
+    return Duration.between(start, Instant.now())
+}
+
+class Parallel private constructor() {
+
+    companion object {
+        fun <T> waitAll(tasks: List<Callable<T>>, threadCount: Int = -1): List<T> {
+            val threads = if (threadCount == -1) Runtime.getRuntime().availableProcessors().let {
+                if (it > tasks.size) {
+                    return@let tasks.size
+                }
+                it
+            } else threadCount
+            val executor = Executors.newFixedThreadPool(threads)
+            val results = executor.invokeAll(tasks).map {
+                it.get()
+            }
+            executor.shutdown()
+            return results
+        }
+    }
+}
