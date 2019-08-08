@@ -174,16 +174,10 @@ class CustomRuntime private constructor(private val handlerConfig: String? = nul
         if (Environment.IS_LOCAL) {
             LocalApiGatewayProxy.start(handlerConfig
                     ?: throw IllegalArgumentException("""Runtime is running on a local machine, you must pass in handler json in order to run it locally, i.e:
-                        |{
-                        |   "GET" : [
-                        |       { "/hello" : "example.Hello" }
-                        |   ],
-                        |   "ANY" : [
-                       |       { "/example" : "example.Example" }
-                        |   ]
-                        |}
-                        |
-                    """.trimMargin()))
+                        |${GsonBuilder().setPrettyPrinting().create().toJson(mapOf(
+                            "ANY" to mapOf("/hello" to "com.example.Handler"),
+                            "GET" to mapOf("/get-hello" to "com.example.GetHandler")
+                    ))}""".trimMargin()))
             processMultiThreaded()
         } else {
             processSingleThreaded()
