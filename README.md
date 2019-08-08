@@ -3,7 +3,7 @@ Custom Runtime wrapper for Java written in Kotlin
 
 ## Installation
 
-1. Add Jitpack to repos in gradle.build
+1. Add Jitpack to repos in gradle.build.kts
     
     ```kotlin
     repositories {
