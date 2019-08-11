@@ -109,8 +109,9 @@ Custom Runtime wrapper for Java written in Kotlin
     Copy this install script to your project directory.
 
     ```bash
-    mkdir  -p ./scripts && \
-    wget -O ./scripts/build.sh "https://github.com/richarddd/aws-lambda-java-custom-runtime/raw/master/build.sh"
+    sudo mkdir  -p ./scripts && \
+    wget -O ./scripts/build.sh "https://github.com/richarddd/aws-lambda-java-custom-runtime/raw/master/build.sh" && \
+    chmod 755 ./scripts/build.sh
    ```
     
 5. Use script to build native binary.
