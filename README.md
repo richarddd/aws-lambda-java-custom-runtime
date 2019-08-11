@@ -59,12 +59,7 @@ Custom Runtime wrapper for Java written in Kotlin
 
 1. Install docker
 
-2. Build image
-    ```
-    docker build -t richarddavison/graalvm-aws-linux2:latest .
-   ```
-
-3. Setup GraalVM reflection (https://github.com/oracle/graal/blob/master/substratevm/REFLECTION.md)
+2. Setup GraalVM reflection (https://github.com/oracle/graal/blob/master/substratevm/REFLECTION.md)
 
     1. This could be done in many ways. One option is to specify a reflection json and pass to native compilation (`-H:ReflectionConfigurationFiles=reflect.json`). However that's extremely verbose.
     
@@ -72,36 +67,67 @@ Custom Runtime wrapper for Java written in Kotlin
         
     2. Add this depedency `compile("com.github.richarddd:graal-auto-reflection:master-SNAPSHOT")`
     
-    3. Create this provider class and modify according to your project:
-    
+    3. Create this provider class and modify according to your project.
+    *NOTE*: It's important that you stay away from Kotlin methods in here and use Stream API as this class runs during GraalVM build time. It is of course possible to use Kotlin here as well, but those classes needs to be initialized at build-time using Native-Image configuration.
+ 
        ```kotlin
-       TODO
+       class AwsReflectionProvider : ReflectionProvider {
+           override fun packages(classGraph: ClassGraph) = ArrayList<String>()
+       
+           override fun classes(classGraph: ClassGraph): List<Class<*>> {
+               return classGraph.enableClassInfo().scan().let {
+                   Stream.concat(
+                       it.getClassesImplementing(RequestStreamHandler::class.java.name).stream().map { it.loadClass() },
+                       it.getClassesImplementing(RequestHandler::class.java.name).stream().flatMap {
+                           Stream.concat(
+                               Stream.of(it.loadClass()),
+                               it.typeSignature.superinterfaceSignatures[0].typeArguments.stream().map {
+                                   (it.typeSignature as ClassRefTypeSignature).loadClass()
+                               })
+                       }
+                   )
+                       .distinct().toList()
+               }
+           }
+       
+       
+       }
+       
+       
+       @Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
+       class ReflectionData : ReflectionProvider {
+           override fun packages(classGraph: ClassGraph) = ArrayList<String>()
+       
+           override fun classes(classGraph: ClassGraph) = Arrays.asList(APIGatewayProxyResponseEvent::class.java)
+       }
        ```
     
     4. Annotate all your response (stuff that you return from your handlers) classes with `@Reflect`
     
-4. Compile native image 
-
-    //TODO fix this
-    ```
-    native() { docker run -it -v "$(pwd):/project" --rm richarddavison/graalvm-aws-linux2:latest --static "$@"; }
+4. Compile native image.
     
-    native -jar build/libs/serverless-dev-all.jar --no-server \
-      --enable-all-security-services \
-      -H:+ReportExceptionStackTraces \
-      -H:ReflectionConfigurationFiles=reflect.json \
-      -H:DynamicProxyConfigurationFiles=proxies.json \
-      -H:IncludeResources=META-INF/services/*.* \
-      -H:EnableURLProtocols=http,https \
-      -H:IncludeResourceBundles=javax.servlet.LocalStrings \
-      -H:IncludeResourceBundles=javax.servlet.http.LocalStrings \
-      -H:-UseServiceLoaderFeature \
-      -H:+TraceServiceLoaderFeature \
-      -H:+AddAllCharsets \
-      --initialize-at-build-time=kotlin.jvm.internal.Intrinsics \
-      --initialize-at-build-time=org.eclipse.jetty.util.thread.TryExecutor \
-      --initialize-at-build-time=java.lang.invoke.MethodHandle
-    ```
+    Copy this install script to your project directory.
+
+    ```bash
+    mkdir  -p ./scripts && \
+    wget -O ./scripts/build.sh "https://github.com/richarddd/aws-lambda-java-custom-runtime/raw/master/build.sh"
+   ```
+    
+5. Use script to build native binary.
+
+    `./scripts/build.sh`
+    
+    (To build and run on your machine use: `./scripts/build.sh local`)
+
+6. Add this to `bootstrap`
+
+    ```bash
+    #!/bin/sh
+    ./runtime
+   ```
+
+#### Graal buildscript arguments
+You could use `--args` to pass extra arguments to your GraalVM native-image build script, i.e: `./scripts/build.sh --args -H:+ReportExceptionStackTraces`
 
 
 

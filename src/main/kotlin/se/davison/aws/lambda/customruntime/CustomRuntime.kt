@@ -63,12 +63,18 @@ class CustomRuntime private constructor(private val handlerConfig: String? = nul
 
         var errorTransformer: (exception: Exception) -> Exception = { it }
 
+        private var shouldRun = true
 
         private fun nextUrl() = "${Environment.RUNTIME_BASE_URL}/invocation/next"
         private fun responseUrl(requestId: String) = "${Environment.RUNTIME_BASE_URL}/invocation/$requestId/response"
         private fun errorUrl(requestId: String? = null) = "${Environment.RUNTIME_BASE_URL}/${requestId?.let {
             "invocation/$requestId"
         } ?: "init"}/error"
+
+        fun stop() {
+            shouldRun = false
+            LocalApiGatewayProxy.stop()
+        }
 
 
         private val GSON = GsonBuilder().create()
@@ -117,7 +123,7 @@ class CustomRuntime private constructor(private val handlerConfig: String? = nul
 
         val handlers = Handlers()
 
-        while (true) {
+        while (shouldRun) {
             var requestId: String? = null
             try {
                 val nextInvocation = nextInvocation()

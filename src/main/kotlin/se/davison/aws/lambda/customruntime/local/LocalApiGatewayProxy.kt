@@ -37,14 +37,28 @@ class LocalApiGatewayProxy(handlerConfig: String) {
         }
     }
 
+    private var server: HttpServer? = null
+
     companion object {
         private val GSON = GsonBuilder().serializeNulls().create()
 
         private val LOGGER = Logger.getLogger(LocalApiGatewayProxy::class.java.simpleName)
 
+        private var instance: LocalApiGatewayProxy? = null
+
         fun start(handlerConfig: String) {
-            LocalApiGatewayProxy(handlerConfig).start()
+            instance = instance ?: LocalApiGatewayProxy(handlerConfig)
+            instance?.start()
         }
+
+        fun stop() {
+            instance?.stop()
+        }
+    }
+
+    private fun stop() {
+        println("Shutting down local server")
+        this.server?.stop(0)
     }
 
     private fun start() {
@@ -172,9 +186,10 @@ class LocalApiGatewayProxy(handlerConfig: String) {
                 textResponse(200, responsesMap[requestId]!!.response)
             }
         }
-        //twice as many as running lambda procesors
+        //twice as many as running lambda processors
         server.executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2)
         server.start()
+        this.server = server
         println("""
   _____         __             ___            __  _          
  / ___/_ _____ / /____  __ _  / _ \__ _____  / /_(_)_ _  ___ 
@@ -186,8 +201,7 @@ class LocalApiGatewayProxy(handlerConfig: String) {
     }
 
     private fun log(message: String, requsetId: String) {
-        //"Processing with handler $handlerName"
-        LOGGER.log(Level.INFO, "Proxy (requsetId=$requsetId): $message")
+        LOGGER.log(Level.INFO, "Proxy (requestId=$requsetId): $message")
     }
 
 

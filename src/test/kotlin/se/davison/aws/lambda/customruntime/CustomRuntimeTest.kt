@@ -61,12 +61,12 @@ object CustomRuntimeTest : Spek({
             "ANY" to mapOf("/hello" to TestHandler::class.java.name)
     )
 
-    CustomRuntime.process(GSON.toJson(handlers))
-    CustomRuntime.onFatalError = {
-        throw it
-    }
-
     describe("Test runtime") {
+
+        CustomRuntime.process(GSON.toJson(handlers))
+        CustomRuntime.onFatalError = {
+            throw it
+        }
 
         val expectation = GSON.toJson(mapOf("body" to GSON.toJson(mapOf("a" to "b"))))
 
@@ -74,13 +74,13 @@ object CustomRuntimeTest : Spek({
         Thread.sleep(1000)
 
         it("should handle a single request") {
-            duratiton {
+            duration {
                 assertEquals(expectation, "http://localhost:3000/hello".openConnection().textResult)
             }.print()
         }
 
         it("should handle several requests") {
-            duratiton {
+            duration {
                 assertEquals(expectation, "http://localhost:3000/hello".openConnection().textResult)
                 assertEquals(expectation, "http://localhost:3000/hello".openConnection().textResult)
                 assertEquals(expectation, "http://localhost:3000/hello".openConnection().textResult)
@@ -91,7 +91,7 @@ object CustomRuntimeTest : Spek({
 
             val count = max(Runtime.getRuntime().availableProcessors() / 2, 1)
 
-            val duration = duratiton {
+            val duration = duration {
                 val expectations = Array(count) {
                     expectation
                 }.toList()
@@ -105,8 +105,17 @@ object CustomRuntimeTest : Spek({
 
             assertTrue(duration.toMillis() < 40)
         }
-
     }
+
+//    describe("Test GraalVM Runtime") {
+//
+//        val builder = ProcessBuilder("native-image", "--no-server", "--enable-all-security-services").inheritIO()
+//
+//        it("should be able to run using graalvm") {
+//
+//
+//        }
+//    }
 })
 
 private fun Duration.print(): Duration {
@@ -114,7 +123,7 @@ private fun Duration.print(): Duration {
     return this
 }
 
-fun duratiton(function: () -> Unit): Duration {
+fun duration(function: () -> Unit): Duration {
     val start = Instant.now()
     function()
     return Duration.between(start, Instant.now())
