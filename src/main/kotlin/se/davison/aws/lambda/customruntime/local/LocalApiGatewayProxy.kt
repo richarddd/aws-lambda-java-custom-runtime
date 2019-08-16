@@ -26,7 +26,9 @@ class RequestEvent(val id: String, val json: String, val method: String, val pat
 
 class HandlerMatcher(val path: String, val handler: String) {
     private val regex = Regex(path)
-    fun matches(test: String) = test.startsWith(path) || regex.matches(path)
+    fun matches(test: String): Boolean {
+        return test.startsWith(path) || regex.matches(test)
+    }
 }
 
 class LocalApiGatewayProxy(handlerConfig: String) {
@@ -93,10 +95,12 @@ class LocalApiGatewayProxy(handlerConfig: String) {
                         contentType("application/json")
                         textResponse(200, requestEvent.json)
                     }
-                    get("/:requestId/error") {
-                        responsesMap[this.requestParameters["requestId"]]?.let {
+                    post("/:requestId/error") {
+                        val requestId = this.requestParameters["requestId"]
+                        responsesMap[requestId]?.let {
                             it.response = this.requestBody.readText()
                             it.latch.countDown()
+                            log("Handler failed", requestId!!)
                         }
                         emptyResponse(200)
                     }

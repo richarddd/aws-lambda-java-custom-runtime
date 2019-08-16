@@ -60,6 +60,19 @@ tasks.withType<Test> {
     }
 }
 
+tasks.withType<Jar> {
+    manifest {
+
+        attributes(
+                mapOf(
+                        "Implementation-Title" to "Serverless",
+                        "Implementation-Version" to project.version,
+                        "Main-Class" to "se.davison.aws.lambda.customruntime.MainKt"
+                )
+        )
+    }
+}
+
 testlogger {
     showStandardStreams = true
     //theme = ThemeType.MOCHA

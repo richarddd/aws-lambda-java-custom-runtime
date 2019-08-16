@@ -82,6 +82,9 @@ class CustomRuntime private constructor(private val handlerConfig: String? = nul
         var onFatalError: (exception: Exception) -> Unit = {
             exitProcess(1)
         }
+        var onError: (exception: Exception) -> Unit = {
+            it.printStackTrace()
+        }
     }
 
 
@@ -104,7 +107,6 @@ class CustomRuntime private constructor(private val handlerConfig: String? = nul
 
     private fun <T : Exception> errorInvocation(exception: T, requestId: String? = null) {
         val transformed = errorTransformer(exception)
-        transformed.printStackTrace()
         errorUrl(requestId).openConnection().post(
                 transformed,
                 GSON
@@ -166,9 +168,11 @@ class CustomRuntime private constructor(private val handlerConfig: String? = nul
                         mappedException,
                         requestId
                 )
+                onError(mappedException)
                 if (mappedException is LambdaInitException) {
                     onFatalError(mappedException)
                 }
+
             }
 
         }

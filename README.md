@@ -16,7 +16,7 @@ Custom Runtime wrapper for Java written in Kotlin
 2. Add dependency
     ```kotlin
     dependencies {
-        compile("com.github.richarddd:aws-lambda-java-custom-runtime:master-SNAPSHOT")
+        compile("com.github.richarddd:aws-lambda-java-custom-runtime:-SNAPSHOT")
     }
     ```
 ## Usage
