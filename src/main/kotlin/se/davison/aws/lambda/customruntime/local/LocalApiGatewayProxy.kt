@@ -204,8 +204,8 @@ class LocalApiGatewayProxy(handlerConfig: String) {
         println("Started local server at: http://localhost:${Environment.LOCAL_PORT}")
     }
 
-    private fun log(message: String, requsetId: String) {
-        LOGGER.log(Level.INFO, "Proxy (requestId=$requsetId): $message")
+    private fun log(message: String, requestId: String) {
+        LOGGER.log(Level.INFO, "Proxy (requestId=$requestId): $message")
     }
 
 

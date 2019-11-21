@@ -3,9 +3,7 @@ package se.davison.aws.lambda.customruntime.local
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpHandler
 import com.sun.net.httpserver.HttpServer
-import se.davison.aws.lambda.customruntime.util.Environment
 import java.io.InputStream
-import java.net.InetSocketAddress
 import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.collections.HashMap
@@ -29,12 +27,12 @@ class Router internal constructor(path: String = "") : HttpHandler {
 
     internal class RoutePart(private val part: String) {
 
-        private val regExp = if (part.isNotEmpty() && part.first() == '(' && part.last() == ')') Regex(part) else null
+        private val regex = if (part.isNotEmpty() && part.first() == '(' && part.last() == ')') Regex(part) else null
         private val paramName = if (part.isNotEmpty() && part.first() == ':') part.substring(1) else null
 
         fun matches(part: String): Triple<Boolean, String?, String?> {
-            if (regExp != null) {
-                return Triple(part.matches(regExp), null, null)
+            if (regex != null) {
+                return Triple(part.matches(regex), null, null)
             }
             if (paramName != null) {
                 return Triple(true, paramName, part)
@@ -50,8 +48,8 @@ class Router internal constructor(path: String = "") : HttpHandler {
 
     init {
         RequestMethod.values().forEach {
-            this.routes[it] = mutableMapOf<String, HttpExchange.() -> Unit>()
-            this.routeCandidates[it] = mutableMapOf<Int, MutableList<String>>()
+            this.routes[it] = mutableMapOf()
+            this.routeCandidates[it] = mutableMapOf()
         }
 
     }
@@ -170,7 +168,7 @@ class Router internal constructor(path: String = "") : HttpHandler {
         textResponse(404, "Not found")
     }
 
-    //extention functions
+    //extension functions
     fun HttpExchange.textResponse(status: Int, text: String) {
         val response = text.toByteArray()
         sendResponseHeaders(status, response.size.toLong())
@@ -179,23 +177,28 @@ class Router internal constructor(path: String = "") : HttpHandler {
         out.close()
     }
 
-    fun HttpExchange.emptyResponse(status: Int) {
-        textResponse(200, "")
+    fun HttpExchange.emptyResponse(status: Int = 200) {
+        textResponse(status, "")
     }
 
-    fun HttpExchange.errorResponse(status: Int, message: String) {
-        textResponse(500, "message")
+    fun HttpExchange.errorResponse(status: Int = 500, message: String) {
+        textResponse(status, message)
     }
 
     fun HttpExchange.contentType(type: String) {
         this.responseHeaders.add("Content-Type", type)
     }
 
-    fun String.stripSlashes() = if (this.isEmpty()) this else (if (this.startsWith("/")) this.substring(1) else this).let {
-        if (it.endsWith("/")) {
-            it.dropLast(1)
-        } else {
-            it
+    private fun String.stripSlashes(): String {
+        return when {
+            this.isEmpty() -> return this
+            this.startsWith("/") -> this.substring(1)
+            else -> this
+        }.let {
+            when {
+                it.endsWith("/") -> dropLast(1)
+                else -> it
+            }
         }
     }
 }
@@ -203,11 +206,6 @@ class Router internal constructor(path: String = "") : HttpHandler {
 //extention functions
 fun HttpServer.router(block: Router.() -> Unit): HttpServer {
     this.createContext("/", Router.router(block))
-    return this
-}
-
-fun HttpServer.default(port: Int = 3000): HttpServer {
-    val server = HttpServer.create(InetSocketAddress(Environment.LOCAL_PORT), 10)
     return this
 }
 

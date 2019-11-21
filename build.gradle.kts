@@ -2,7 +2,7 @@ plugins {
     `java-library`
     maven
     idea
-    kotlin("jvm") version "1.3.41"
+    kotlin("jvm") version "1.3.60"
     id("com.adarshr.test-logger") version "1.7.0"
 }
 
@@ -17,11 +17,11 @@ repositories {
 }
 
 //kotlin
-val kotlinVersion = "1.3.41"
+val kotlinVersion = "1.3.60"
 
 //deps
 val awsLambdaCoreVersion = "1.2.0"
-val awsLambdaEventsVersion = "2.2.6"
+val awsLambdaEventsVersion = "2.2.7"
 val gsonVersion = "2.8.5"
 
 //tests
@@ -32,9 +32,9 @@ dependencies {
 
     implementation(kotlin("stdlib-jdk8"))
 
-    implementation("com.google.code.gson:gson:$gsonVersion")
-    implementation("com.amazonaws:aws-lambda-java-events:$awsLambdaEventsVersion")
-    implementation("com.amazonaws:aws-lambda-java-core:$awsLambdaCoreVersion")
+    api("com.google.code.gson:gson:$gsonVersion")
+    api("com.amazonaws:aws-lambda-java-events:$awsLambdaEventsVersion")
+    api("com.amazonaws:aws-lambda-java-core:$awsLambdaCoreVersion")
 
     testImplementation(kotlin("reflect", kotlinVersion))
     testImplementation(kotlin("test", kotlinVersion))
